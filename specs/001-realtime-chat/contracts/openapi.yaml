@@ -1,0 +1,336 @@
+openapi: 3.1.0
+info:
+  title: Real-time Chat API
+  version: 1.0.0
+  description: REST API for chat conversations and message history
+
+servers:
+  - url: /api/v1
+    description: API base path
+
+paths:
+  /conversations:
+    get:
+      summary: List user's conversations
+      operationId: listConversations
+      tags: [Conversations]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Pagination cursor (conversation ID)
+      responses:
+        '200':
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationList'
+
+    post:
+      summary: Create a new conversation
+      operationId: createConversation
+      tags: [Conversations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversation'
+      responses:
+        '201':
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+
+  /conversations/{conversationId}:
+    get:
+      summary: Get conversation details
+      operationId: getConversation
+      tags: [Conversations]
+      parameters:
+        - $ref: '#/components/parameters/conversationId'
+      responses:
+        '200':
+          description: Conversation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /conversations/{conversationId}/messages:
+    get:
+      summary: Get message history
+      operationId: getMessages
+      tags: [Messages]
+      parameters:
+        - $ref: '#/components/parameters/conversationId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Get messages before this message ID
+      responses:
+        '200':
+          description: Message history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageList'
+
+    post:
+      summary: Send a message (REST fallback)
+      operationId: sendMessage
+      tags: [Messages]
+      parameters:
+        - $ref: '#/components/parameters/conversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessage'
+      responses:
+        '201':
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /conversations/search:
+    get:
+      summary: Search conversations and messages
+      operationId: searchConversations
+      tags: [Conversations]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Search query
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResults'
+
+  /users/{userId}/presence:
+    get:
+      summary: Get user presence status
+      operationId: getUserPresence
+      tags: [Presence]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User presence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Presence'
+
+components:
+  parameters:
+    conversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Conversation:
+      type: object
+      required: [id, participants, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Participant'
+        lastMessage:
+          $ref: '#/components/schemas/Message'
+        unreadCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConversationList:
+      type: object
+      required: [conversations, hasMore]
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+
+    CreateConversation:
+      type: object
+      required: [participantIds]
+      properties:
+        participantIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+          maxItems: 1
+          description: User ID to start conversation with (1:1 only)
+
+    Participant:
+      type: object
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+        presence:
+          $ref: '#/components/schemas/Presence'
+
+    Message:
+      type: object
+      required: [id, conversationId, senderId, content, createdAt, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        content:
+          type: string
+          maxLength: 10000
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [sending, sent, delivered, failed]
+
+    MessageList:
+      type: object
+      required: [messages, hasMore]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        hasMore:
+          type: boolean
+
+    SendMessage:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+
+    Presence:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [online, away, offline]
+        lastSeen:
+          type: string
+          format: date-time
+
+    SearchResults:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              conversation:
+                $ref: '#/components/schemas/Conversation'
+              matchingMessages:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
